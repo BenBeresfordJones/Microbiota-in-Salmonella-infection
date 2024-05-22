@@ -2,7 +2,7 @@
 Scripts and data for reproducing figures from the Salmonella manuscript.
 As this manuscript is currently unpublished, this repository is provided for reviewers only.
 
-## /Figures/
+## Figures/
 
 ### RNAseq_deseq2.Rmd
 This Rmd file includes the workflow to analyse Salmon quants.sf output in Deseq2.
