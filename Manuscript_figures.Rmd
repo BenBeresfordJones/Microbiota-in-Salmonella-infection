@@ -1,0 +1,1851 @@
+---
+title: "Manuscript figures"
+author: "Benjamin Beresford-Jones"
+date: "2024-05-20"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Load required packages
+```{r}
+# data handling
+library(readxl)
+library(magrittr)
+library(reshape2)
+library(plyr)
+library(rstatix)
+
+# general R plots
+library(ggplot2)
+library(ggpubr)
+library(pheatmap)
+
+# survival plots
+library(survival)
+library(survminer)
+```
+
+
+### Set default settings
+```{r}
+# figure outdir
+outdir <- "~/Figures/"
+
+# colonisation 
+col_palette <- c("Clean"="darkblue", "Non_col"="grey")
+
+# isolate colours
+iso_select_1 <- c("PBS",
+                "Enterocloster clostridioformis",
+                "Escherichia coli str. A7",
+                "Escherichia coli str. Fergi",
+                "Anaerostipes sp000508985",
+                "S. Typhimurium")
+iso_select_2 <- c("E. clostridioformis",
+                  "E. coli A7",
+                  "E. coli Fergi",
+                  "A. faecis")
+
+iso_pal_1 <- get_palette("Set1", 6)
+iso_pal_2 <- get_palette("Set1", 6)[c(2:5)]
+
+names(iso_pal_1) <- iso_select_1
+names(iso_pal_2) <- iso_select_2
+
+iso_pal <- c(iso_pal_1, iso_pal_2, "LB"="#E41A1C")
+
+phycol=c("#377eb8","#8CB302","#008C74","#d95f02","#FF974F","#FFED6F","#FDCDAC","#ffd92f","#e22426","#B3B3B3","#FBB4AE","#984ea3","#35478C","#7FC97F","#FF73C5","#BF5693")
+phylabs=c("Actinobacteriota","Bacteroidota","Campylobacterota","Cyanobacteria","Deferribacterota","Desulfobacterota","Elusimicrobiota","Firmicutes","Firmicutes_A","Firmicutes_B","Firmicutes_C","Proteobacteria","Spirochaetota","Thermotogota","Verrucomicrobiota","Verrucomicrobiota_A")
+names(phycol) <- phylabs
+
+classcol=c("#377eb8","#8CB302","#008C74","#d95f02","#FF974F","#FFED6F","#FDCDAC","#ffd92f","#e22426","#B3B3B3","#FBB4AE","#984ea3","#35478C","#7FC97F","#FF73C5","#BF5693")
+classlabs=c("Actinomycetia","Bacteroidia","Campylobacterota","Cyanobacteria","Deferribacterota","Desulfobacterota","Elusimicrobiota","Bacilli","Clostridia","Firmicutes_B","Firmicutes_C","Gammaproteobacteria","Spirochaetota","Thermotogota","Verrucomicrobiota","Verrucomicrobiota_A")
+names(classcol) <- classlabs
+```
+
+### Read input data
+```{r}
+dp = "Figure data.xlsx"
+readxl::excel_sheets(dp)
+```
+
+# Figure 1B
+
+GF screen of MCC isolates
+
+```{r}
+# read data
+d <- read_excel(path = dp, sheet = "GF_screen_data")
+
+# fix taxonomy
+# define species
+d$Species <- unlist(lapply(strsplit(d$Commensal_taxonomy_r95, split = ";.__"), 
+                           function(x) {
+                             x[7]
+                           }))
+
+d$Species[is.na(d$Species)] <- "PBS"
+
+# define class
+d$Class <- unlist(lapply(strsplit(d$Commensal_taxonomy_r95, split = ";.__"), 
+                         function(x) {
+                           x[3]
+                         }))
+
+d$Class[is.na(d$Class)] <- "PBS"
+
+# define phylum
+d$Phylum <- unlist(lapply(strsplit(d$Commensal_taxonomy_r95, split = ";.__"), 
+                          function(x) {
+                            x[2]
+                          }))
+
+d$Phylum[is.na(d$Phylum)] <- "PBS"
+
+# clean up data
+d[,grep(pattern = "Weight_", colnames(d))] <- apply(X = d[,grep(pattern = "Weight_", colnames(d))], 
+                                                    MARGIN = 2, 
+                                                    FUN = function(x) {
+                                                      x[x == 0] <- NA
+                                                      as.numeric(x)
+                                                    }) %>% as.data.frame
+
+# define species print names
+d$Species_id <- d$Species
+d$Species_id[grep(pattern = "coli", d$Species)] <- paste(d$Species[grep(pattern = "coli", d$Species)], "str.", d$Treatment[grep(pattern = "coli", d$Species)])
+
+# generate percentage weight loss
+d_perc <- apply(X = d[,grep(pattern = "Weight_", colnames(d))], 
+                 MARGIN = 1, 
+                 function(x) {
+                   x/x[1]*100
+                 }) %>% t %>% as.data.frame
+
+colnames(d_perc) <- paste0(colnames(d_perc), "_perc")
+d <- cbind(d, d_perc)
+colnames(d)[grep(pattern = "_perc", colnames(d))] <- c("dpi0", "dpi1", "dpi2", "dpi3", "dpi4")
+
+# edit palette
+classpal <- classcol[names(classcol) %in% unique(d$Class)]
+```
+
+```{r}
+## plot 1dpi weights
+i <- unlist(lapply(split(d$dpi1, f = d$Species_id), median))
+dpi1_order <- names(i)[order(i, decreasing = TRUE)]
+
+p <- ggboxplot(d, x = "Species_id", y = "dpi1", 
+          order = rev(dpi1_order),
+          outlier.size = 0.3,
+          fill = "Class", palette = classpal,
+          ylab = FALSE) +
+  ylim(c(80,110))
+
+p1 <- ggpar(p, rotate = TRUE, legend = "none", ylab = "weight at 1 dpi (%)") +
+  stat_compare_means(ref.group = "PBS", 
+                     label = "p.signif", 
+                     hide.ns = TRUE, 
+                     size = 3, vjust = 0.8)
+
+p1 <- p1 + theme(axis.ticks.y = element_blank(),
+        axis.line.y = element_blank(),
+        axis.text.y = element_blank()) +
+  theme(axis.title.x = element_text(vjust=19))
+```
+
+```{r}
+## plot survival
+# get data
+d$Survival_day <- apply(X=d[,grep(pattern = "^dpi", colnames(d))], MARGIN = 1, function(x) {
+  colnames(d)[grep(pattern = "^dpi", colnames(d))][length(x) + 1 - as.numeric(which(!is.na((rev(x))))[1])]
+}) %>% gsub(pattern = "dpi", replacement = "") %>% as.numeric
+
+# summarise the data -> mean_se
+ds <- ddply(.data = d, .variables = c("Species_id", "Class"), .drop = TRUE, 
+      .fun = function(xx, col) {
+        c(mean = mean(xx[[col]]),
+          se = sd(xx[[col]]) / sqrt(length(xx[[col]]))
+        )
+      },
+      "Survival_day"
+      )
+
+d2 <- merge(x = d, y = ds, by = c("Species_id", "Class"), all.x = TRUE)
+
+p <- ggline(d2, x = "Species_id", y = "Survival_day", color = "Class",
+            palette =  classpal,
+       group = "Species_id", 
+       plot_type = "p", 
+       add = "mean",
+       #size = 0.4,
+       order = rev(dpi1_order), 
+       ylab = FALSE) +
+  geom_errorbar(aes(ymin=mean-se, ymax=mean+se), size = 0.4, width = 0.1, colour="black") +
+  geom_point(aes(y = mean, color = Class), size = 2) +
+  ylim(c(1,4)) +
+  stat_compare_means(ref.group = "PBS", label = "p.signif", hide.ns = TRUE, 
+                     size = 3, vjust = 0.8)
+
+p2 <- ggpar(p, rotate = TRUE, legend = "right",
+            legend.title = "Taxonomic class", 
+            ylab = "survival (dpi)")
+
+p2 <- p2 + 
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.line.y = element_blank()) +
+  theme(axis.title.x = element_text(vjust=19))
+```
+
+```{r}
+## plot colonisation status
+d$colstat <- 1
+
+# change PBS to being non-colonised
+d$Col_status[d$Treatment == "PBS"] <- "Non_col"
+
+pb <- ggbarplot(d, x = "Species_id", y = "colstat", 
+                add = "mean",
+                order = rev(dpi1_order),
+                fill = "Col_status", 
+                palette = c("black", "white"), 
+                ylab = FALSE, 
+                xlab = FALSE)
+pb <- ggpar(pb, rotate = TRUE, legend = "none", x.text.angle = 30) +
+  scale_y_continuous(breaks=c(0.5), labels = "Colonisation status") # single central tick mark
+
+pb <- pb + theme(axis.ticks.y = element_blank(),
+        axis.line = element_blank())
+```
+
+```{r}
+ggarrange(pb, p1, p2, nrow = 1, widths = c(0.252,0.3,0.4), align = "h")
+```
+
+### Correct statistics for multiple comparisons
+```{r}
+# weight loss at 1dpi
+wilcox_test(data = d, formula = dpi1 ~ Treatment, ref.group = "PBS", p.adjust.method = "BH")
+
+# survival
+wilcox_test(data = d, formula = Survival_day ~ Treatment, ref.group = "PBS", p.adjust.method = "BH")
+```
+
+
+# Figure 2
+
+```{r}
+# subset data
+iso_select <- c("PBS","Enterocloster clostridioformis")
+df <- d[d$Species_id %in% iso_select,]
+df$Species_id <- factor(df$Species_id, levels = iso_select)
+```
+
+## Figure 2A
+
+```{r}
+# format data
+df$idvar <- paste0("M", seq(1, nrow(df), 1))
+dfm <- melt(df, measure.vars = colnames(df)[grep(pattern = "^dpi", colnames(df))])
+dfm$dpi <- gsub(pattern = "dpi", replacement = "", dfm$variable) %>% as.numeric
+
+# weight loss dpi
+ddply(.data = df, .variables = "Species_id", 
+                    .fun = function(x) {
+                      c(N=nrow(x),
+                        apply(x[,grep("^dpi", colnames(x))], 
+                            MARGIN = 2,
+                            FUN = function(y) {
+                              sum(!is.na(y))
+                            }))
+                    })
+
+# remove timepoints where mice have died -> plot only up to day 3
+dfm_v2 <- rbind(dfm[dfm$dpi %in% c(0:1) & dfm$Treatment == "PBS",],
+                dfm[dfm$dpi %in% c(0:3) & dfm$Treatment == "A92",])
+
+p <- ggline(dfm_v2, x = "dpi", y = "value", 
+       group = "Species_id", color = "Species_id", plot_type = "b", 
+       add = "mean_se", 
+       size = 1,
+       palette = "Set1", 
+       xlab = "days post-infection", 
+       ylab = "weight (% of day 0)") +
+  geom_hline(yintercept = 80, linetype = "dashed") +
+  theme(legend.title = element_blank()) +
+  stat_compare_means(label = "p.format", label.x = 3.5, label.y = 97) +
+  stat_compare_means(label = "p.signif", label.x = 2.9, label.y = 97)
+
+p_dpi2 <- ggpar(p, legend = "right")
+
+p_dpi2
+```
+
+## Figure 2B
+
+```{r}
+## survival
+df$Status <- 2
+surv_diff <- survdiff(Surv(Survival_day, Status) ~ Species_id, data = df)
+
+d_survival <- ddply(.data = df, .variables = "Species_id", 
+                    .fun = function(x) {
+                      dpi0_surv <- length(which(!is.na(x$dpi1)))
+                      dpi1_surv <- length(which(!is.na(x$dpi2)))
+                      dpi2_surv <- length(which(!is.na(x$dpi3)))
+                      dpi3_surv <- length(which(!is.na(x$dpi4)))
+                      dpi0 <- dpi0_surv/dpi0_surv*100
+                      dpi1 <- dpi1_surv/dpi0_surv*100
+                      dpi2 <- dpi2_surv/dpi0_surv*100
+                      dpi3 <- dpi3_surv/dpi0_surv*100
+                      c(dpi0=dpi0, 
+                        dpi1=dpi1, 
+                        dpi2=dpi2, 
+                        dpi3=dpi3, 
+                        dpi4=0)
+                    }
+)
+
+d_survival[,grep("dpi", colnames(d_survival))] <- apply(d_survival[,grep("dpi", colnames(d_survival))], 
+                                                        MARGIN = 1,
+                                                        FUN = function(x) {
+                                                          i <- sum(x == 0) - 1
+                                                          if ( i != 0) {
+                                                            x[6-c(1:i)] <- NA
+                                                          }
+                                                          as.numeric(x)
+                                                        }) %>% t
+
+dm_survival <- melt(data = d_survival, id.vars = "Species_id")
+
+dm_survival$dpi <- gsub(pattern = "dpi", replacement = "", dm_survival$variable) %>% 
+  as.numeric
+
+p <- ggplot(data = dm_survival, mapping = aes(x = dpi, y = value, group = Species_id)) +
+  geom_step(aes(color = Species_id), size = 1) + 
+  geom_point() +
+  theme_pubr() + 
+  theme(legend.title = element_blank())
+
+psurv <- ggpar(p, palette = "Set1", xlab = "days post-infection", ylab = "percent survival", 
+               legend = "right") + 
+  annotate(geom="text", label = "**** p = 5e-09", x=3.3, y=98)
+
+psurv
+```
+
+## Figures 2C & 2E
+
+Histology
+
+### Oedema scores
+```{r}
+oedema <- read_excel(path = dp, sheet = "Post_STm_oedema")
+
+colnames(oedema)[3] <- "oedema_perc"
+colnames(oedema)[10] <- "Sample"
+
+oedema$oedema_perc <- as.numeric(oedema$oedema_perc)
+oedema_score_SS <- ddply(oedema[oedema$Scorer == "SS",], .variables = c("Tissue", "Sample", "Group"), 
+      .fun = function(x) {
+        m <- mean(x$oedema_perc)
+        if (m >= 80) {
+          s <- 3
+        } else if (m >= 50) {
+          s <- 2
+        } else if (m >= 20) {
+          s <- 1
+        } else {
+          s <- 0
+        }
+        c(Mean=m, Oedema_score=s)
+      })
+
+oedema_score_KR <- ddply(oedema[oedema$Scorer == "KR",], .variables = c("Tissue", "Sample", "Group"), 
+      .fun = function(x) {
+        m <- NA
+        s <- median(x$`submucosal oedema`)
+        c(Mean=m, Oedema_score=s)
+      })
+
+oedema_score <- ddply(rbind(oedema_score_SS, oedema_score_KR), .variables = c("Tissue", "Sample", "Group"),
+      .fun = function(x) {
+        m <- mean(x$Oedema_score)
+        c(Oedema_score=m)
+      })
+```
+
+### Other histology scores
+```{r}
+# read histology data
+histo <- read_excel(path = dp, sheet = "Post_STm_histology_scores")
+histo$Group[histo$Group == "A92"] <- "E. clostridioformis"
+
+# format data
+histo$`Neuts/mm2` <- as.numeric(histo$`Neuts/mm2`)
+histo$mononuclear_infiltrate <- as.numeric(histo$mononuclear_infiltrate)
+histo$epithelial_integrity <- as.numeric(histo$epithelial_integrity)
+histo$cryptitis <- as.numeric(histo$cryptitis)
+histo$goblet_cells_per_section <- as.numeric(histo$goblet_cells_per_section)
+histo$neutrophils_per_section <- as.numeric(histo$neutrophils_per_section)
+
+# HPF area = 262.1 um x 262.1 um
+HPF_area_mm2 = 0.06869641
+
+# calculate average scores for samples
+histo_scores <- ddply(.data = histo, .variables = c("Sample_index", "Tissue", "Sample", "Group"), 
+                .fun = function(x) {
+                  Mean = mean(x$`Neuts/mm2`, na.rm = TRUE)
+                  c(Neuts_count = (Mean * HPF_area_mm2) / 2, # normalise for HPF area
+                  GC_count = mean(as.numeric(x$goblet_cells_per_section), na.rm = TRUE),  
+                    Mononuclear_infiltrate=median(as.numeric(x$mononuclear_infiltrate), na.rm = TRUE),
+                    Epithelial_integrity=median(as.numeric(x$epithelial_integrity), na.rm = TRUE),
+                    Cryptitis=median(as.numeric(x$cryptitis), na.rm = TRUE)
+                    )
+                })
+
+# Neutrophils
+histo_scores$Neutrophil_score <- sapply(histo_scores$Neuts_count, function(x) {
+  x <- as.numeric(x)
+  
+  if (is.na(x)) {
+    s=NA
+  } else if (x > 100) {
+    s=4
+  } else if (x > 60) {
+    s=3
+  } else if (x > 20) {
+    s=2
+  } else if (x >= 5) {
+    s=1
+  } else {
+    s=0
+  }
+  return(s)
+})
+
+# Goblet cells
+histo_scores$GC_score <- sapply(histo_scores$GC_count, function(x) {
+  x <- as.numeric(x)
+  
+  if (is.na(x)) {
+    s=NA
+  } else if (x > 28) {
+    s=0
+  } else if (x > 10) {
+    s=1
+  } else if (x >= 1) {
+    s=2
+  } else if (x < 1) {
+    s=3
+  } 
+  return(s)
+})
+
+# generate final scores
+histo_scores_final <- ddply(histo_scores, .variables = c("Sample", "Tissue", "Group"), 
+               .fun = function(x) {
+                 c(Mononuclear_infiltration = mean(x$Mononuclear_infiltrate, na.rm = TRUE),
+                   Epithelium = mean(x$Epithelial_integrity, na.rm = TRUE),
+                   Cryptitis = mean(x$Cryptitis, na.rm = TRUE),
+                   PMNs = mean(x$Neutrophil_score, na.rm = TRUE),
+                   GCs = mean(x$GC_score, na.rm = TRUE)
+                 )
+               })
+
+histo_m <- melt(data = histo_scores_final, 
+                id.vars = c("Sample", "Tissue", "Group"), 
+                measure.vars = c("Mononuclear_infiltration", 
+                                 "Cryptitis",
+                                 "Epithelium",
+                                 "PMNs",
+                                 "GCs"))
+
+# combine with oedema data
+oedema_m <- melt(oedema_score, measure.vars = "Oedema_score")
+
+histo_scores_final <- rbind(oedema_m, histo_m)
+histo_scores_final$variable <- droplevels(histo_scores_final$variable) %>% as.character
+histo_scores_final$variable[histo_scores_final$variable == "Oedema_score"] <- "Oedema"
+
+# set levels
+histo_scores_final$Group <- factor(histo_scores_final$Group, levels = unique(histo_scores_final$Group))
+
+# define names
+histo_scores_final$Obs <- NA
+histo_scores_final$Obs[histo_scores_final$variable == "Oedema"] <- "Submucosal oedema"
+histo_scores_final$Obs[histo_scores_final$variable == "Mononuclear_infiltration"] <- "Mononuclear infiltrate"
+histo_scores_final$Obs[histo_scores_final$variable == "Epithelium"] <- "Epithelial integrity"
+histo_scores_final$Obs[histo_scores_final$variable == "Cryptitis"] <- "Cryptitis"
+histo_scores_final$Obs[histo_scores_final$variable == "PMNs"] <- "PMN infiltration"
+histo_scores_final$Obs[histo_scores_final$variable == "GCs"] <- "Goblet cells"
+
+histo_total <- ddply(histo_scores_final, .variables = c("Sample", "Group", "Tissue"), 
+                     .fun = function(x) {
+                       c(Total_score=sum(x$value, na.rm = TRUE))
+                     })
+```
+
+## Figure 2C
+```{r}
+p_hist <- ggbarplot(histo_total, x = "Tissue", y = "Total_score", 
+                    fill = "Group", palette = "Set1", 
+                    order = c("Ileum", "Caecum", "Colon"),
+                    ylab ="Histology score",
+                    xlab = FALSE,
+                    add = c("mean_se"), position = position_dodge(0.8))
+
+p_hist <- ggpar(p_hist, legend = "right") +
+  theme(legend.title = element_blank()) +
+  scale_y_continuous()
+
+p_hist
+```
+
+## Figure 2E
+```{r}
+p <- ggbarplot(histo_scores_final[histo_scores_final$Tissue == "Caecum",], x = "Group", y = "value", 
+          fill = "Obs", palette = "Greys",
+          add = c("mean_se"),
+          xlab = FALSE, ylab = "Score")
+
+p_hcaecum <- ggpar(p, legend = "right") +
+  theme(legend.title = element_blank(), 
+        axis.title.x = element_blank())
+
+p_hcaecum
+```
+
+
+# Figure 3
+
+## Figure 3A
+
+In vivo S.Tm titres.
+
+```{r}
+# get data
+vivo_cfu <- read_excel(path = dp, sheet = "in_vivo_CFU")
+
+# define species
+vivo_cfu$Species <- unlist(lapply(strsplit(vivo_cfu$Commensal_taxonomy_r95, split = ";.__"), 
+                           function(x) {
+                             x[7]
+                           }))
+
+vivo_cfu$Species[is.na(vivo_cfu$Species)] <- "PBS"
+vivo_cfu$Species[vivo_cfu$Species == "Enterocloster clostridioformis"] <- "E. clostridioformis"
+
+# change names for publication
+vivo_cfu$Group <- vivo_cfu$Species
+vivo_cfu$Group[vivo_cfu$Group == "PBS"] <- "GF"
+vivo_cfu$Group[vivo_cfu$Group == "Anaerostipes sp000508985"] <- "A. faecis"
+vivo_cfu$Group[vivo_cfu$Group == "Escherichia coli"] <- "E. coli"
+
+# add levels 
+vivo_cfu$Group <- factor(vivo_cfu$Group, levels = unique(vivo_cfu$Group))
+
+# create palette
+monocol_pal <- get_palette("Set1", 4)
+names(monocol_pal) <- unique(vivo_cfu$Group)
+
+# default comparisons for stats
+monocol_comp = list(c("GF", "E. clostridioformis"), c("GF", "A. faecis"), c("GF", "E. coli"))
+```
+
+## Caecal contents
+
+```{r}
+p_caecal_contents <- ggboxplot(vivo_cfu, x = "Group", y="Caecal_content_STm_CFUg", 
+          fill = "Group", 
+          palette = monocol_pal, 
+          order = unique(vivo_cfu$Group),
+          size = 1,
+          ylab = "STm CFU/g caecal contents",
+          xlab = "Caecal contents",
+          add = c("dotplot")) +
+  stat_compare_means(comparisons = monocol_comp, 
+                     label = "p.signif",
+                     bracket.size = 0.5,
+                     tip.length = 0)
+
+p_caecal_contents <- ggpar(p_caecal_contents, legend = "right") + 
+  scale_y_log10() +
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        legend.title = element_blank())
+
+p_caecal_contents
+```
+
+```{r}
+# correct stats for multiple copmarisons
+wilcox_test(vivo_cfu, formula = Caecal_content_STm_CFUg ~ Group, p.adjust.method = "BH", ref.group = "GF")
+```
+
+```{r}
+# get fold change values for E. coli vs E. clostridioformis
+caecum_medians <- ddply(.data = vivo_cfu, .variables = c("Group"), .fun = function(x) {
+        median(x$Caecal_content_STm_CFUg)
+})
+
+caecum_medians
+
+# E. coli
+caecum_medians$V1[1]/caecum_medians$V1[4]
+# 38.54167
+
+# E. clostridioformis
+caecum_medians$V1[1]/caecum_medians$V1[2]
+# 2.927215
+```
+
+## mLN
+
+```{r}
+vivo_cfu$mLN_STm_CFUg[vivo_cfu$mLN_STm_CFUg == 0] <- 1
+
+p_mLN <- ggboxplot(vivo_cfu, x = "Group", y="mLN_STm_CFUg", 
+          fill = "Group", 
+          palette = monocol_pal,
+          size = 1,
+          ylab = "STm CFU/g mLN",
+          xlab = "mLN",
+          add = c("dotplot")) +
+  stat_compare_means(comparisons = monocol_comp,
+                     label = "p.signif", 
+                     # label.y = 5.9,
+                     # size = 5, 
+                     bracket.size = 0.5,
+                     tip.length = 0)
+
+p_mLN <- ggpar(p_mLN, legend = "right") + 
+  yscale("log10") +
+  scale_y_log10() + 
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        legend.title = element_blank()) 
+
+p_mLN
+```
+
+```{r}
+# correct stats for multiple copmarisons
+wilcox_test(vivo_cfu, formula = mLN_STm_CFUg ~ Group, p.adjust.method = "BH", ref.group = "GF")
+```
+
+## Liver
+
+```{r}
+# make data numerics and fix 0's for log range
+vivo_cfu$Liver_STm_CFUg <- as.numeric(vivo_cfu$Liver_STm_CFUg)
+vivo_cfu$Liver_STm_CFUg[vivo_cfu$Liver_STm_CFUg == 0] <- 1
+
+p_liver <- ggboxplot(vivo_cfu, x = "Group", y="Liver_STm_CFUg", 
+          fill = "Group", 
+          palette = monocol_pal,
+          size = 1,
+          ylab = "STm CFU/g liver",
+          xlab = "Liver",
+          add = c("dotplot")) +
+  stat_compare_means(comparisons = monocol_comp,
+                     label = "p.signif", 
+                     #label.y = 7.6,
+                     #size = 5, 
+                     bracket.size = 0.5,
+                     tip.length = 0)
+
+p_liver <- ggpar(p_liver, legend = "right") + 
+  scale_y_log10() + 
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        legend.title = element_blank()) 
+
+p_liver
+```
+
+```{r}
+# correct for multiple comparisons
+wilcox_test(vivo_cfu, formula = Liver_STm_CFUg ~ Group, comparisons = monocol_comp, p.adjust.method = "BH", ref.group = "GF")
+```
+
+## Spleen
+
+```{r}
+vivo_cfu$Spleen_STm_CFUg <- as.numeric(vivo_cfu$Spleen_STm_CFUg)
+vivo_cfu$Spleen_STm_CFUg[vivo_cfu$Spleen_STm_CFUg == 0] <- 1
+
+p_spleen <- ggboxplot(vivo_cfu, x = "Group", y="Spleen_STm_CFUg", 
+          fill = "Group", 
+          palette = monocol_pal,
+          size = 1,
+          ylab = "STm CFU/g spleen",
+          xlab = "Spleen",
+          add = c("dotplot")) +
+  stat_compare_means(comparisons = monocol_comp,
+                     label = "p.signif", 
+                     bracket.size = 0.5,
+                     tip.length = 0)
+
+p_spleen <- ggpar(p_spleen, legend = "right") + yscale("log10") +
+  scale_y_log10() + 
+  theme(axis.ticks.x = element_blank(),
+        axis.text.x = element_blank(),
+        legend.title = element_blank()) 
+
+p_spleen
+```
+
+```{r}
+# correct for multiple comparisons
+wilcox_test(vivo_cfu, formula = Spleen_STm_CFUg ~ Group, comparisons = monocol_comp, p.adjust.method = "BH", ref.group = "GF")
+```
+
+
+```{r}
+pl2_p4 <- ggarrange(p_caecal_contents, p_mLN, p_liver, p_spleen, nrow = 1, align = "h", 
+                 common.legend = TRUE, legend = "right")
+pl2_p4
+```
+
+
+## Figure 3B
+
+Colonisation resistance
+
+```{r}
+# read data
+cr <- read_excel(dp, "Colonisation_resistance")
+
+# define names
+cr$Group <- gsub(cr$Group, pattern = "A7", replacement = "E. coli") %>%
+  gsub(pattern = "A92", replacement = "E. clostridioformis") %>%
+  gsub(pattern = "A14", replacement = "A. faecis") %>%
+  gsub(pattern = "STm", replacement = "S. Typhimurium") %>%
+  gsub(pattern = "AnO2 S. Typhimurium", replacement = "S. Typhimurium")
+
+# set levels
+cr$Group <- factor(cr$Group, levels =  unique(cr$Group)[c(3,5,2,4,1,7,6)])
+
+# format data
+cr$Bacterial_titres_CFU_g.mL <- as.numeric(cr$Bacterial_titres_CFU_g.mL)
+cr$log_titres <- log10(cr$Bacterial_titres_CFU_g.mL)
+```
+
+### Spent media
+```{r}
+# define colour palete
+media_pal <- get_palette("Set1", 5)
+names(media_pal) <- unique(cr$Group[cr$Assay == "Spent_STm"])[c(1,3,2,4,5)]
+
+pspent <- ggline(cr[cr$Assay == "Spent_STm",], x = "Timepoint", y = "log_titres",
+       color = "Group", 
+       palette = media_pal, 
+       add = "mean_se", 
+       numeric.x.axis = TRUE,
+       ylab = "S.Tm (CFU/mL)",
+       xlab = "Time (hrs)") +
+  scale_y_continuous(breaks = c(6,7,8,9), #limits = c(6,9),
+                     labels = c("1e+06", "1e+07", "1e+08", "1e+09")) + 
+  theme(legend.position = "right", legend.title = element_blank())
+pspent
+```
+
+### Stationary phase broth
+```{r}
+pstat <- ggline(cr[cr$Assay == "Stationary_STm",], x = "Timepoint", y = "log_titres",
+       color = "Group",
+       palette = media_pal,
+       add = c("mean_se"),
+       remove = 72,
+       numeric.x.axis = TRUE,
+       ylab = "S.Tm (CFU/mL)",
+       xlab = "Time (hrs)") +
+  scale_y_continuous(breaks = c(6,7,8,9), 
+                     labels = c("1e+06", "1e+07", "1e+08", "1e+09")) + 
+  theme(legend.position = "right", legend.title = element_blank())
+pstat
+```
+
+
+```{r}
+p_comp <- ggarrange(pspent, pstat, nrow = 1, align = "hv", 
+          common.legend = TRUE, legend = "right")
+p_comp
+```
+
+## Figure 3C
+
+Commensal broth titres
+
+```{r}
+com_titres <- cr[cr$Assay == "GrowthCurve_commensals" & 
+                   cr$Timepoint %in% c(24,36) & 
+                   cr$Group != "O2 S. Typhimurium",]
+
+# summary statistics for titres
+ddply(.data = com_titres, .variables = c("Group"), 
+      .fun = function(x) {
+        c(summary(x$Bacterial_titres_CFU_g.mL),
+        mean_sd=sd(x$Bacterial_titres_CFU_g.mL))
+      })
+
+# significance of relationship
+a_com <- aov(Bacterial_titres_CFU_g.mL ~ Group, com_titres)
+TukeyHSD(a_com)
+
+# plot data
+p_ct <- ggbarplot(com_titres, x = "Group", y = "log_titres", 
+          fill = "Group", 
+          palette = media_pal,
+          add = c("mean_se"), 
+          xlab = FALSE, 
+          ylab = "Titres (CFU/mL)") + 
+  scale_y_continuous(breaks = c(0,2,4,6,8,10), limits = c(0,10.2),
+                     labels = c("1e+00", "1e+02", "1e+04", "1e+06", "1e+08", "1e+10")) + 
+  theme(legend.position = "none") +
+  rotate_x_text(50)
+
+p_ct
+```
+
+## Figure 3D
+
+Supplementation with glucose 
+
+```{r}
+# get data
+gluc <- read_excel(dp, "Spent_media_glucose")
+
+# define names
+gluc$Group <- gsub(gluc$Group, pattern = "A7", replacement = "E. coli") %>%
+  gsub(pattern = "A92", replacement = "E. clostridioformis") %>%
+  gsub(pattern = "A14", replacement = "A. faecis") %>%
+  gsub(pattern = "STm", replacement = "S. Typhimurium")
+
+# define data groups to analyse
+gluc_p <- gluc[gluc$Group %in% c("E. coli", "S. Typhimurium"),]
+colnames(gluc_p)[c(3)] <- "Glucose"
+
+# plot
+p_gluc <- ggline(gluc_p, 
+       x = "Glucose", y = "OD", 
+       numeric.x.axis = TRUE, 
+       xlab = "[Glucose], %",
+       ylab = "OD600",
+       add = "mean", 
+       color = "Group", 
+       palette = media_pal
+       ) +
+  theme(legend.title = element_blank(), legend.position = "right")
+p_gluc
+```
+
+## Figure 3E
+
+ex vivo faecal spiking assay
+
+```{r}
+# get data
+ex_vivo <- cr[cr$Assay == "Ex_vivo_STm",]
+
+# plot
+p_caecum <- ggline(ex_vivo[ex_vivo$Tissue_Broth == "Caecum",], 
+               x = "Timepoint", y = "log_titres", 
+       color = "Group", palette = get_palette("Set1", 4)[-3],
+       add = c("mean_se"), 
+       numeric.x.axis = TRUE, 
+       ylab = "S.Tm (CFU/g)",
+       xlab = "Time (hrs)") +
+  scale_y_continuous(breaks = c(6,7,8,9), labels = c("1e+06", "1e+07", "1e+08", "1e+09"))
+
+ggpar(p_caecum, legend = "none")
+```
+
+```{r}
+# significance calculations
+a <- aov(Bacterial_titres_CFU_g.mL ~ Group, ex_vivo[ex_vivo$Assay == "Ex_vivo_STm" & ex_vivo$Tissue_Broth == "Caecum" & ex_vivo$Timepoint != 0,])
+TukeyHSD(a)
+```
+
+
+# Figure 4
+
+### Mucus penetration scores
+```{r}
+# read data
+muc <- read_excel(path = dp, sheet = "Pre_STm_mucus_scores")
+
+# curate data
+muc$Expt <- lapply(strsplit(muc$Sample_index, split = "_"), function(x) {x[1]}) %>% unlist
+muc$Mouse <- lapply(strsplit(muc$Sample_index, split = "_"), function(x) {x[2]}) %>% unlist
+muc$Group <- NA
+
+# define metadata
+muc$Group <- gsub(pattern = "GP1 m1", replacement = "E. coli", paste(muc$Expt, muc$Mouse)) %>%
+  gsub(pattern = "GP1 M4", replacement = "E. coli") %>%
+  gsub(pattern = "GP1 M6", replacement = "E. clostridioformis") %>%
+  gsub(pattern = "GP1 M8", replacement = "E. clostridioformis") %>%
+  gsub(pattern = "GP2 M10", replacement = "E. clostridioformis") %>%
+  gsub(pattern = "GP2 M5", replacement = "E. coli") %>%
+  gsub(pattern = "GP3 M7", replacement = "E. coli") %>%
+  gsub(pattern = "GP3 M10", replacement = "E. clostridioformis") %>%
+  gsub(pattern = "GP2 M11", replacement = "E. clostridioformis") %>%
+  gsub(pattern = "GP3 M10", replacement = "E. clostridioformis") %>%
+  gsub(pattern = "DSS9 M1", replacement = "A. faecis") %>%
+  gsub(pattern = "DSS9 M3", replacement = "A. faecis") %>%
+  gsub(pattern = "DSS9 M2", replacement = "A. faecis") %>%
+  gsub(pattern = "GP3 M9", replacement = "E. clostridioformis") %>%
+  gsub(pattern = "GP2 M6", replacement = "E. coli") %>%
+  gsub(pattern = "DSS9 M4", replacement = "A. faecis") %>% 
+  gsub(pattern = "GP3 M6", replacement = "E. coli")
+muc$Group[grep("SPF", muc$Expt)] <- "SPF"
+
+# define levels
+muc$Group <- factor(muc$Group, levels = unique(muc$Group)[c(3,1,4,2)])
+```
+
+## Figure 4B
+```{r}
+# caecum
+# stats
+wilcox_test(data = muc[muc$Tissue == "Caecum",], formula = Score ~ Group, ref.group = "SPF", p.adjust.method = "BH")
+
+# plot
+p <- ggviolin(muc[muc$Tissue == "Caecum",], x = "Group", y = "Score", 
+              size = 1, 
+              fill = "Group", 
+              ylab = "Mucus penetration score",
+              palette = c(media_pal, "SPF" = "#A9A9A9")) + 
+  scale_y_continuous(limits = c(0,5), breaks = c(0,1,2,3,4,5)) +
+  stat_compare_means(comparisons = list(c("SPF", "E. clostridioformis"), 
+                                        c("E. clostridioformis", "A. faecis"), 
+                                        c("E. clostridioformis", "E. coli")), 
+                     label = "p.signif", method = "wilcox", tip.length = 0) +
+    geom_boxplot(muc[muc$Tissue == "Caecum",], mapping = aes(x=Group, y=Score, fill=Group),
+               width = 0.2,
+               outliers = FALSE)
+
+ggpar(p, xlab = FALSE, legend = "none") +
+  theme(legend.title = element_blank())
+```
+
+## Figure 4C
+```{r}
+# colon
+# stats
+wilcox_test(data = muc[muc$Tissue == "Colon",], formula = Score ~ Group, ref.group = "SPF", p.adjust.method = "BH")
+
+# plot
+p <- ggviolin(muc[muc$Tissue == "Colon",], x = "Group", y = "Score", 
+              size = 1, 
+              fill = "Group", 
+              #add = c("boxplot"), # manually specify below
+              ylab = "Mucus penetration score",
+              #title = "Caecum",
+              #add.params = list(fill = "lightgrey"),
+              palette = c(media_pal, "SPF" = "#A9A9A9")) + 
+  scale_y_continuous(limits = c(0,5), breaks = c(0,1,2,3,4,5)) +
+  geom_boxplot(muc[muc$Tissue == "Colon",], mapping = aes(x=Group, y=Score, fill=Group),
+               width = 0.2,
+               outliers = FALSE)
+
+ggpar(p, xlab = FALSE, legend = "none") +
+  theme(legend.title = element_blank())
+```
+
+
+## Figure 4D
+
+RTqPCR 
+
+```{r}
+d <- read_excel(path = dp, sheet = "IEC_RTqPCR_data")
+
+d$Group <- gsub(d$Group, pattern = "A7", replacement = "E. coli") %>%
+  gsub(pattern = "A92", replacement = "E. clostridioformis") %>%
+  gsub(pattern = "A14", replacement = "A. faecis")
+
+d$Group <- factor(d$Group, levels = unique(d$Group))
+```
+
+Barrier function target list:
+relmb
+reg3g
+saa1
+cryptdin4
+fut2
+muc2
+mZO-1
+occludin
+nlrc4
+il-1b
+
+Immune function targets:
+ido1
+il-6
+raldh1
+tnfa
+rdh7
+tph1
+
+```{r}
+# barrier function genes
+barrier_genes <- c("relmb","reg3g","saa1","cryptdin4","fut2","muc2","mZO-1","occludin","nlrc4","il-1b")
+d_bg <- d[d$Target %in% barrier_genes & d$Group != "S. muris" & d$Tissue %in% c("Caecum"),]
+
+# establish levels
+d_bg$Group <- factor(x = d_bg$Group, levels = unique(d_bg$Group)[c(1,2,5,3,4)])
+
+# summary plots
+lapply(split(d_bg, d_bg$Tissue), function(x) {
+  lapply(split(x, x$Target), function(y) {
+    p <- ggbarplot(y, x = "Group", y = "Expression",
+                   add = c("mean_se"), 
+                   xlab = FALSE, ylab = "Relative Expression",
+                   fill = "Group", 
+                   palette = c(monocol_pal, "SPF"="#A9A9A9"),
+                   title = paste0(unique(y$Tissue), ": ", unique(y$Target)),) +
+      stat_compare_means(comparisons = list(c("GF", "E. coli"),
+                                            c("GF", "A. faecis"),
+                                            c("E. coli", "SPF"),
+                                            c("GF", "E. clostridioformis"),
+                                            c("A. faecis", "SPF"),
+                                            c("E. clostridioformis", "SPF"),
+                                            c("GF", "SPF")
+      ), 
+      label = "p.signif", tip.length = 0)
+    ggpar(p, legend = "right", x.text.angle = 30)
+  })
+  })
+```
+
+Caecum:
+fut2, muc2, mZO-1, nlrc4, occludin, reg3g, relmbm, saa1 - complete
+il-1b - no SPF
+-> exclude il-1b
+
+```{r}
+# generate multiple comparisons
+lapply(split(d_bg, d_bg$Tissue), function(x) {
+  lapply(split(x, x$Target), function(y) {
+    
+    res.out <- t_test(formula = Expression ~ Group, data = x, p.adjust.method = "BH", ref.group = "GF")
+    res.out$Tissue <- unique(y$Tissue)
+    res.out$Target <- unique(y$Target)
+    return(res.out)
+  })
+  })
+
+# REG3G
+t_test(data = d_bg[d_bg$Tissue == "Caecum" & d_bg$Target == "reg3g",], formula = Expression ~ Group, ref.group = "GF", p.adjust.method = "BH")
+# Expression	GF	E. clostridioformis	14	11	1.2414271	21.195713	0.228000	0.304	ns
+# Expression	GF	A. faecis	14	4	-4.5413132	10.378775	0.000976	0.004	**
+# Expression	GF	E. coli	14	11	-0.5817792	10.754973	0.573000	0.573	ns
+# Expression	GF	SPF	14	8	-3.7701815	7.923493	0.006000	0.011	*
+
+# RELMB
+t_test(data = d_bg[d_bg$Tissue == "Caecum" & d_bg$Target == "relmb",], formula = Expression ~ Group, ref.group = "GF", p.adjust.method = "BH")
+# Expression	GF	E. clostridioformis	14	11	-3.63797370	10.398726	0.004	0.009	**
+# Expression	GF	A. faecis	14	4	-0.46391192	7.304980	0.656	0.875	ns
+# Expression	GF	E. coli	14	11	-0.07089648	15.608042	0.944	0.944	ns
+# Expression	GF	SPF	14	10	-3.92361910	9.057568	0.003	0.009	**
+
+# SAA1
+t_test(data = d_bg[d_bg$Tissue == "Caecum" & d_bg$Target == "saa1",], formula = Expression ~ Group, ref.group = "GF", p.adjust.method = "BH")
+# Expression	GF	E. clostridioformis	14	11	2.5491894	22.99982	0.018	0.072	ns
+# Expression	GF	A. faecis	14	4	-0.7766063	13.51839	0.451	0.503	ns
+# Expression	GF	E. coli	14	11	-0.9870059	18.25768	0.337	0.503	ns
+# Expression	GF	SPF	14	10	-0.6935388	10.64449	0.503	0.503	ns
+
+# Tjp1
+t_test(data = d_bg[d_bg$Tissue == "Caecum" & d_bg$Target == "mZO-1",], formula = Expression ~ Group, ref.group = "GF", p.adjust.method = "BH")
+# Expression	GF	E. clostridioformis	14	11	-0.08880256	15.16124	0.930	0.930	ns
+# Expression	GF	A. faecis	14	4	1.30078286	13.25484	0.215	0.430	ns
+# Expression	GF	E. coli	14	11	0.16785856	22.69868	0.868	0.930	ns
+# Expression	GF	SPF	14	9	-2.18372650	8.26687	0.059	0.238	ns
+```
+
+```{r}
+# generate publication plots
+plot_rtqpcr <- function(tissue, target, ylh) {
+  df <- d_bg[d_bg$Tissue == tissue & d_bg$Target == target,]
+  p <- ggbarplot(df, x = "Group", y = "Expression",
+               add = c("mean_se"), 
+               xlab = FALSE, ylab = "Relative Expression",
+               fill = "Group", 
+               palette = c(monocol_pal, "SPF"="#A9A9A9"),
+               title = paste0(unique(df$Tissue), ": ", unique(df$Target)),) +
+  stat_compare_means(comparisons = list(c("GF", "E. coli"),
+                                        c("GF", "A. faecis"),
+                                        c("E. coli", "SPF"),
+                                        c("GF", "E. clostridioformis"),
+                                        c("A. faecis", "SPF"),
+                                        c("E. clostridioformis", "SPF"),
+                                        c("GF", "SPF")
+  ), 
+  label.y = ylh,
+  label = "p.signif", tip.length = 0, method = "t.test")
+ggpar(p, legend = "none", x.text.angle = 30)
+}
+
+get_ylh_auto <- function(start) {
+  interval=start/7.5
+c(start, start+interval, start+interval, start+(2*interval), start+(2*interval), start+(3*interval), start+(4*interval))
+}
+```
+
+```{r}
+# caecum
+plot_rtqpcr(tissue = "Caecum", target = "relmb", ylh = get_ylh_auto(start= 107000))
+plot_rtqpcr(tissue = "Caecum", target = "reg3g", ylh = get_ylh_auto(start= 2600))
+plot_rtqpcr(tissue = "Caecum", target = "saa1", ylh = get_ylh_auto(start= 135000))
+plot_rtqpcr(tissue = "Caecum", target = "fut2", ylh = get_ylh_auto(start= 49000))
+plot_rtqpcr(tissue = "Caecum", target = "muc2", ylh = get_ylh_auto(start= 930000))
+plot_rtqpcr(tissue = "Caecum", target = "mZO-1", ylh = get_ylh_auto(start= 27500))
+plot_rtqpcr(tissue = "Caecum", target = "occludin", ylh = get_ylh_auto(start= 5100))
+plot_rtqpcr(tissue = "Caecum", target = "nlrc4", ylh = get_ylh_auto(start= 5400))
+```
+
+
+# Figure 5
+
+```{r}
+# get data
+deg_df <- read.delim("IEC_RNAseq_data.tsv")
+```
+
+## Figure 5A
+```{r}
+# summary statistics
+ddply(.data = deg_df, .variables = c("Group"), 
+      .fun = function(x){
+        data.frame(sig_degs=count(x$FDR <= 0.05),
+                   nonsig_degs=count(x$FDR > 0.05))
+      })
+
+
+# total genes
+# A92 = 363
+# A7 = 65
+# SPF = 1424
+
+# all three groups
+names_s123 <- which(deg_df[deg_df$FDR <= 0.05 & !is.na(deg_df$FDR),1] %>% table ==3) %>% names
+length(names_s123)
+# = 6 
+
+# pairwise sharing, excluding genes shared by all groups
+# A92 vs A7
+count(deg_df[deg_df$FDR <= 0.05 & !is.na(deg_df$FDR) & deg_df$Group == "A7" & !deg_df$Gene %in% names_s123,1] %in% deg_df[deg_df$FDR <= 0.05 & !is.na(deg_df$FDR) & deg_df$Group == "A92" & !deg_df$Gene %in% names_s123,1])
+# 4
+
+# A92 vs SPF
+count(deg_df[deg_df$FDR <= 0.05 & !is.na(deg_df$FDR) & deg_df$Group == "SPF"& !deg_df$Gene %in% names_s123,1] %in% deg_df[deg_df$FDR <= 0.05 & !is.na(deg_df$FDR) & deg_df$Group == "A92" & !deg_df$Gene %in% names_s123,1])
+# 139
+
+# SPF vs A7
+count(deg_df[deg_df$FDR <= 0.05 & !is.na(deg_df$FDR) & deg_df$Group == "A7" & !deg_df$Gene %in% names_s123,1] %in% deg_df[deg_df$FDR <= 0.05 & !is.na(deg_df$FDR) & deg_df$Group == "SPF" & !deg_df$Gene %in% names_s123,1])
+# 10
+```
+
+```{#r}
+# review significantly differentially expressed genes (DEGs)
+# A7
+deg_df[deg_df$Group == "A7" & deg_df$FDR <= 0.05 & !is.na(deg_df$FDR),]
+
+# A92
+deg_df[deg_df$Group == "A92" & deg_df$FDR <= 0.05 & !is.na(deg_df$FDR),]
+
+# SPF
+deg_df[deg_df$Group == "SPF" & deg_df$FDR <= 0.05 & !is.na(deg_df$FDR),]
+```
+
+### DEG volcano plots
+```{r}
+deg_df$minuslog_padj <- -log(deg_df$FDR, base = 10)
+
+# define colours by significance
+deg_df$sig_status <- "lightgrey"
+deg_df$sig_status[deg_df$FDR <= 0.05 & deg_df$log2FoldChange >= 1.5 & !is.na(deg_df$FDR)] <- "blue"
+deg_df$sig_status[deg_df$FDR <= 0.05 & deg_df$log2FoldChange <= -1.5 & !is.na(deg_df$FDR)] <- "red"
+colpal <- unique(deg_df$sig_status)
+names(colpal) <- unique(deg_df$sig_status)
+```
+
+## Figure 5B
+```{r}
+# volcano plots with labels
+# E. coli
+tmp_vp <- deg_df[deg_df$Group == "A7" & !is.na(deg_df$FDR),]
+
+# add labels
+for_labs <- tmp_vp[abs(tmp_vp$log2FoldChange) >= 1.5 & tmp_vp$FDR <= 0.05,]
+labs_select <- unique(c(for_labs$Gene[for_labs$minuslog_padj > -log(0.05, base = 10) + (7.5*sd(tmp_vp$minuslog_padj))], 
+         for_labs$Gene[abs(for_labs$log2FoldChange) >= 1.5+(5*sd(tmp_vp$log2FoldChange))]))
+
+# plot
+ggscatter(tmp_vp, 
+          x = "log2FoldChange", y = "minuslog_padj", 
+          title = "E. coli vs GF",
+          color = "sig_status",
+          xlab = "log2(Fold Change)",
+          ylab = "-log10(p-value)",
+          label = "Gene",
+          label.select = labs_select,
+          repel = TRUE,
+          palette = colpal) +
+  theme(legend.position = "none") +
+  scale_x_continuous(limits = c(-26,26))
+```
+
+## Figure 5C
+```{r}
+# A92
+tmp_vp <- deg_df[deg_df$Group == "A92" & !is.na(deg_df$FDR),]
+
+# labels
+for_labs <- tmp_vp[abs(tmp_vp$log2FoldChange) >= 1.5 & tmp_vp$FDR <= 0.05,]
+labs_select <- unique(c(for_labs$Gene[for_labs$minuslog_padj > -log(0.05, base = 10) + (7.5*sd(tmp_vp$minuslog_padj))], 
+         for_labs$Gene[abs(for_labs$log2FoldChange) >= 1.5+(5*sd(tmp_vp$log2FoldChange))]))
+
+# plot
+ggscatter(tmp_vp, 
+          x = "log2FoldChange", y = "minuslog_padj", 
+          title = "E. clostridioformis vs GF",
+          color = "sig_status",
+          xlab = "log2(Fold Change)",
+          ylab = "-log10(p-value)",
+          label = "Gene",
+          label.select = labs_select,
+          repel = TRUE,
+          palette = colpal) +
+  theme(legend.position = "none") +
+  scale_x_continuous(limits = c(-32,32))
+```
+
+## Figure 5E 
+
+### Heatmap of cell cycle genes in A92 
+
+```{r}
+# load QuickGO annotations for cell cycle
+cc_go <- read_excel(path = dp, sheet = "GO_cell_cycle")
+cc_go <- cc_go[which(cc_go$`GENE PRODUCT ID` %in% deg_df$ID),] %>% unique
+
+# get significant cell cycle associated genes 
+cc_go_A92 <- deg_df[deg_df$Group == "A92" & deg_df$FDR <= 0.05 & !is.na(deg_df$ID) & !is.na(deg_df$FDR) & deg_df$ID %in% cc_go$`GENE PRODUCT ID`,]
+cc_go_d <- deg_df[deg_df$Gene %in% cc_go_A92$Gene,]
+cc_go_dm <- dcast(cc_go_d, Group ~ Gene, value.var = "log2FoldChange")
+row.names(cc_go_dm) <- c("E. coli", "E. clostridioformis", "SPF")
+cc_go_dm <- as.matrix(cc_go_dm[,-1])
+
+# generate heatmap
+pheatmap(mat = cc_go_dm, cluster_rows = F, cluster_cols = F, angle_col = 90, 
+         color = rev(get_palette("RdBu", 1024)[c(100:924)]),
+         breaks = seq(-max(c(cc_go_dm)), max(c(cc_go_dm)), length.out = 825))
+```
+
+## Figure 5G
+
+### Heatmap of leukocyte activation genes in A7
+
+```{r}
+# load QuickGO annotations for leukocyte activation
+la_go <- read_excel(path = dp, sheet = "GO_leukocyte_activation")
+la_go <- la_go[which(la_go$`GENE PRODUCT ID` %in% deg_df$ID),] %>% unique
+
+# get significant leukocyte activation associated genes 
+la_go_A7 <- deg_df[deg_df$Group == "A7" & deg_df$FDR <= 0.05 & !is.na(deg_df$ID) & !is.na(deg_df$FDR) & deg_df$ID %in% la_go$`GENE PRODUCT ID`,]
+la_go_d <- deg_df[deg_df$Gene %in% la_go_A7$Gene,]
+la_go_dm <- dcast(la_go_d, Group ~ Gene, value.var = "log2FoldChange")
+row.names(la_go_dm) <- c("E. coli", "E. clostridioformis", "SPF")
+la_go_dm <- as.matrix(la_go_dm[,-1])
+
+# generate heatmap
+pheatmap(mat = la_go_dm, cluster_rows = F, cluster_cols = F, angle_col = 90, 
+         color = rev(get_palette("RdBu", 1024)[c(100:924)]),
+         breaks = seq(-max(c(la_go_dm)), max(c(la_go_dm)), length.out = 825))
+```
+
+
+# Figure 6
+
+Immune phenotyping and flow cytometry
+
+```{r}
+# load data
+iel_data <- read_excel(path = dp, sheet = "Flow_data_IEL")
+noniel_data <- read_excel(path = dp, sheet = "Flow_data_nonIEL")
+```
+
+## Figure 6A
+
+```{r}
+# CIEL data plots
+d <- iel_data[iel_data$Tissue == "Caecum",]
+
+# normalise to CD3+ instead of Viable
+d$`gd-T cells | CD3+` <- d$`gd-T cells | Viable` / d$`CD3+ | Viable`*100
+d$`CD8aa T cells | CD3+` <-  d$`CD8aa T cells | Viable` / d$`CD3+ | Viable`*100
+d$`CD8aa gd-T cells | CD3+` <- d$`CD8aa gd-T cells | Viable` / d$`CD3+ | Viable`*100
+
+# make palette and order
+monocol_pal2 <- c("#E41A1C","#377EB8","#4DAF4A","#984EA3")
+names(monocol_pal2) <- c("GF",  "E. clos.", "A. faecis", "E. coli")
+iso_order2 <- c("GF","E. clos.","E. coli")
+my_comparisons2 <- list(c("E. clos.","GF"), c("E. coli","GF"))
+
+# build plots
+df <- data.frame(Metadata=d$Group2, Var_group=d$`gd-T cells | CD3+`)
+wilcox_test(data = df, formula = Var_group ~ Metadata, ref.group = "GF", p.adjust.method = "BH")
+# 	Var_group	GF	E. clos.	11	11	83	0.151	0.151	ns
+# 2	Var_group	GF	E. coli	11	12	22	0.006	0.011	*
+p_gdtc_cd3_ciel <- ggbarplot(df, x = "Metadata", y = "Var_group",
+          fill = "Metadata",
+          palette = monocol_pal2,
+          order = iso_order2,
+          ylab = "TCRg+ (% of CD3+)", 
+          xlab  = FALSE,
+          add = c("median_mad"),
+          add.params = list(width = 0.3)) +
+  stat_compare_means(comparisons = my_comparisons2, label = "p.signif") +
+  theme(legend.position = "none") +
+  rotate_x_text(30) +
+    geom_dotplot(binaxis = "y", stackdir = "center", binpositions="all", binwidth = max(df$Var_group)/50)
+
+df <- data.frame(Metadata=d$Group2, Var_group=d$`CD8aa gd-T cells | CD3+`)
+wilcox_test(data = df, formula = Var_group ~ Metadata, ref.group = "GF", p.adjust.method = "BH")
+# Var_group	GF	E. clos.	11	11	75	0.358	0.358	ns
+# 2	Var_group	GF	E. coli	11	12	23	0.009	0.018	*
+p_cd8aa_gdtc_cd3_ciel <- ggbarplot(df, x = "Metadata", y = "Var_group",
+          fill = "Metadata",
+          palette = monocol_pal2,
+          order = iso_order2,
+          ylab = "CD8aa+ TCRg+ (% of CD3+)", 
+          xlab  = FALSE,
+          add = c("median_mad"),
+          add.params = list(width = 0.3)) +
+  stat_compare_means(comparisons = my_comparisons2, label = "p.signif") +
+  theme(legend.position = "none") +
+  rotate_x_text(30) +
+    geom_dotplot(binaxis = "y", stackdir = "center", binpositions="all", binwidth = max(df$Var_group)/50)
+
+df <- data.frame(Metadata=d$Group2, Var_group=d$`CD8aa T cells | CD3+`)
+wilcox_test(data = df, formula = Var_group ~ Metadata, ref.group = "GF", p.adjust.method = "BH")
+# Var_group	GF	E. clos.	11	11	78	0.27	0.54	ns
+# 2	Var_group	GF	E. coli	11	12	69	0.88	0.88	ns
+p_cd8aa_tc_cd3_ciel <- ggbarplot(df, x = "Metadata", y = "Var_group",
+          fill = "Metadata",
+          palette = monocol_pal2,
+          order = iso_order2,
+          ylab = "CD8aa+ TCRb+ (% of CD3+)", 
+          xlab  = FALSE,
+          add = c("median_mad"),
+          add.params = list(width = 0.3)) +
+  stat_compare_means(comparisons = my_comparisons2, label = "p.signif") +
+  theme(legend.position = "none") +
+  rotate_x_text(30) +
+    geom_dotplot(binaxis = "y", stackdir = "center", binpositions="all", binwidth = max(df$Var_group)/50)
+
+
+ggarrange(p_gdtc_cd3_ciel, p_cd8aa_gdtc_cd3_ciel, p_cd8aa_tc_cd3_ciel, 
+          ncol=3, nrow=1, align = "hv")
+
+```
+
+
+## Figure 6B
+
+```{r}
+# CLPL data plots
+d <- noniel_data[noniel_data$Tissue == "Colon",]
+
+df <- data.frame(Metadata=d$Group2, Var_group=d$`CD4 T cells | T cells`)
+wilcox_test(data = df, formula = Var_group ~ Metadata, ref.group = "GF", p.adjust.method = "BH")
+# Var_group	GF	E. clos.	11	10	22	0.022000	0.022000	*
+# 2	Var_group	GF	E. coli	11	12	4	0.000153	0.000306	***
+p_cd4_tc_clpl <- ggbarplot(df, x = "Metadata", y = "Var_group",
+          fill = "Metadata",
+          palette = monocol_pal2,
+          order = iso_order2,
+          ylab = "CD4+ (% of TCRb+)", 
+          xlab  = FALSE,
+          add = c("median_mad"),
+          add.params = list(width = 0.3)) +
+  stat_compare_means(comparisons = my_comparisons2, label = "p.signif") +
+  theme(legend.position = "none") +
+  rotate_x_text(30) +
+    geom_dotplot(binaxis = "y", stackdir = "center", binpositions="all", binwidth = max(df$Var_group, na.rm = TRUE)/50)
+
+df <- data.frame(Metadata=d$Group2, Var_group=d$`Tregs | T cells`)
+wilcox_test(data = df, formula = Var_group ~ Metadata, ref.group = "GF", p.adjust.method = "BH")
+# 	Var_group	GF	E. clos.	11	10	18	0.010	0.020	*
+# 2	Var_group	GF	E. coli	11	12	73	0.689	0.689	ns
+p_tregs_tc_clpl <- ggbarplot(df, x = "Metadata", y = "Var_group",
+          fill = "Metadata",
+          palette = monocol_pal2,
+          order = iso_order2,
+          ylab = "FoxP3+ (% of TCRb+)", 
+          xlab  = FALSE,
+          add = c("median_mad"),
+          add.params = list(width = 0.3)) +
+  stat_compare_means(comparisons = my_comparisons2, 
+                     label = "p.signif") +
+  theme(legend.position = "none") +
+  rotate_x_text(30) +
+    geom_dotplot(binaxis = "y", stackdir = "center", binpositions="all", binwidth = max(df$Var_group, na.rm = TRUE)/50)
+
+df <- data.frame(Metadata=d$Group2, Var_group=d$Treg_CD4_ratio)
+wilcox_test(data = df, formula = Var_group ~ Metadata, ref.group = "GF", p.adjust.method = "BH")
+# Var_group	GF	E. clos.	11	10	26	0.043	0.043	*
+# 2	Var_group	GF	E. coli	11	12	100	0.037	0.043	*
+p_tregs_cd4_clpl <- ggbarplot(df, x = "Metadata", y = "Var_group",
+          fill = "Metadata",
+          palette = monocol_pal2,
+          order = iso_order2,
+          ylab = "CD4 Treg:CD4 Teff ratio", 
+          xlab  = FALSE,
+          add = c("median_mad"),
+          add.params = list(width = 0.3)) +
+  stat_compare_means(comparisons = my_comparisons2, 
+                     label = "p.signif") +
+  theme(legend.position = "none") +
+  rotate_x_text(30) +
+    geom_dotplot(binaxis = "y", stackdir = "center", binpositions="all", binwidth = max(df$Var_group, na.rm = TRUE)/50)
+
+ggarrange(p_cd4_tc_clpl, p_tregs_tc_clpl, p_tregs_cd4_clpl, 
+                       ncol=3, nrow=1, align = "hv")
+```
+
+## Figure 6C
+
+```{r}
+# CIEL data plots
+d <- iel_data[iel_data$Tissue == "Caecum",]
+df <- data.frame(Metadata=d$Group2, Var_group=d$Treg_CD4_ratio)
+wilcox_test(data = df, formula = Var_group ~ Metadata, ref.group = "GF", p.adjust.method = "BH")
+# Var_group	GF	E. clos.	11	11	9	0.000275	0.00055	***
+# 2	Var_group	GF	E. coli	11	12	56	0.566000	0.56600	ns
+p_tregs_cd4_ciel <- ggbarplot(df, x = "Metadata", y = "Var_group",
+          fill = "Metadata",
+          palette = monocol_pal2,
+          order = iso_order2,
+          ylab = "CD4 Treg:CD4 Teff ratio", 
+          xlab  = FALSE,
+          add = c("median_mad")) +
+  stat_compare_means(comparisons = my_comparisons2, label = "p.signif") +
+  theme(legend.position = "none") +
+  rotate_x_text(30) +
+    geom_dotplot(binaxis = "y", stackdir = "center", binpositions="all", binwidth = max(df$Var_group, na.rm = TRUE)/50)
+
+# LIEL data plots
+d <- iel_data[iel_data$Tissue == "Colon",]
+df <- data.frame(Metadata=d$Group2, Var_group=d$Treg_CD4_ratio)
+wilcox_test(data = df, formula = Var_group ~ Metadata, ref.group = "GF", p.adjust.method = "BH")
+# Var_group	GF	E. clos.	11	10	24	0.029	0.059	ns
+# 2	Var_group	GF	E. coli	11	12	44	0.190	0.190	ns
+p_tregs_cd4_liel <- ggbarplot(df, x = "Metadata", y = "Var_group",
+          fill = "Metadata",
+          palette = monocol_pal2,
+          order = iso_order2,
+          ylab = "CD4 Treg:CD4 Teff ratio", 
+          xlab  = FALSE,
+          add = c("median_mad")) +
+  stat_compare_means(comparisons = my_comparisons2, label = "p.signif") +
+  theme(legend.position = "none") +
+  rotate_x_text(30) +
+    geom_dotplot(binaxis = "y", stackdir = "center", binpositions="all", binwidth = max(df$Var_group, na.rm = TRUE)/50)
+
+# SIEL data plots
+d <- iel_data[iel_data$Tissue == "Small intestine",]
+df <- data.frame(Metadata=d$Group2, Var_group=d$Treg_CD4_ratio)
+wilcox_test(data = df, formula = Var_group ~ Metadata, ref.group = "GF", p.adjust.method = "BH")
+# Var_group	GF	E. clos.	11	6	12	0.036	0.073	ns
+# 2	Var_group	GF	E. coli	11	8	52	0.545	0.545	ns
+p_tregs_cd4_siel <- ggbarplot(df, x = "Metadata", y = "Var_group",
+          fill = "Metadata",
+          palette = monocol_pal2,
+          order = iso_order2,
+          ylab = "CD4 Treg:CD4 Teff ratio", 
+          xlab  = FALSE,
+          add = c("median_mad")) +
+  stat_compare_means(comparisons = my_comparisons2, label = "p.signif") +
+  theme(legend.position = "none") +
+  rotate_x_text(30) +
+    geom_dotplot(binaxis = "y", stackdir = "center", binpositions="all", binwidth = max(df$Var_group, na.rm = TRUE)/50)
+
+ggarrange(p_tregs_cd4_ciel, p_tregs_cd4_liel, p_tregs_cd4_siel, 
+                       ncol=3, nrow=1, align = "hv")
+```
+
+
+# Supplementary Figure 1
+
+# gf vs spf survival
+```{r}
+# load data
+spf <- read_excel(path = dp, sheet = "SPF_screen_data")
+gf <- read_excel(path = dp, sheet = "GF_screen_data")
+
+# rename treatment groups
+spf$Abx[spf$Treatment == "PBS-no_abx"] <- "SPF"
+spf$Abx[spf$Abx == "OG AVMN+Cf"] <- "Abx i.g."
+spf$Abx[spf$Abx == "DW AVMN"] <- "Abx d.w."
+
+# curate data
+spf <- spf[spf$Commensal_taxonomy_r95 == "Control",]
+gf <- gf[gf$Treatment == "PBS" & gf$Col_status == "Clean",]
+
+# SPF
+spf_perc <- apply(X = spf[,grep(pattern = "Weight_", colnames(spf))], 
+                 MARGIN = 1, 
+                 function(x) {
+                   x <- as.numeric(x)
+                   x/x[1]*100
+                 }) %>% t %>% as.data.frame
+
+colnames(spf_perc) <- paste0("dpi",seq(0,length(grep(pattern = "Weight_", colnames(spf)))-1))
+
+spf <- cbind(spf, spf_perc)
+
+# GF
+gf_perc <- apply(X = gf[,grep(pattern = "Weight_", colnames(gf))], 
+                 MARGIN = 1, 
+                 function(x) {
+                   x <- as.numeric(x)
+                   x/x[1]*100
+                 }) %>% t %>% as.data.frame
+
+colnames(gf_perc) <- paste0("dpi",seq(0,length(grep(pattern = "Weight_", colnames(gf)))-1))
+
+gf <- cbind(gf, gf_perc)
+
+# setfill blanks to enable copmarison
+gf$dpi5 <- NA
+gf$dpi6 <- NA
+gf$dpi7 <- NA
+gf$dpi8 <- NA
+gf$dpi9 <- NA
+gf$dpi10 <- NA
+gf$Abx <- "GF"
+gf$Commensal_faeces_post_abx_d0 <- NA
+gf$Commensal_faeces_post_abx_d1 <- NA
+gf$Commensal_faeces_post_abx_d2 <- NA
+
+# combine datasets
+spf_gf <- rbind(gf[,colnames(gf) %in% colnames(spf)], spf[,colnames(spf) %in% colnames(gf)])
+
+# set levels
+spf_gf$Abx <- factor(spf_gf$Abx, levels = unique(spf_gf$Abx)[c(1,3,2,4)])
+```
+
+## Supp. Figure 1A - Weight loss
+
+```{r}
+# prepare data
+spf_gf$idvar <- paste0("M", seq(1, nrow(spf_gf), 1))
+spf_gfm <- melt(spf_gf, measure.vars = colnames(spf_gf)[grep(pattern = "^dpi", colnames(spf_gf))])
+spf_gfm$dpi <- gsub(pattern = "dpi", replacement = "", spf_gfm$variable) %>% as.numeric
+
+# remove data when mice in a group has died
+spf_gfm_v <- ddply(.data = spf_gfm, .variables = c("Abx", "dpi"), 
+                    .fun = function(x, y) {
+                      i <- all(!is.na(x$value))
+                      
+                      if (i == TRUE) {
+                        dtmp <- x
+                      } else {
+                        dtmp <- NULL
+                      }
+                      
+                      return(dtmp)
+                    })
+
+# plot only up to day 3
+
+p <- ggline(spf_gfm_v, x = "dpi", y = "value", 
+       group = "Abx", 
+       color = "Abx", 
+       size = 1, 
+       numeric.x.axis = TRUE,
+       plot_type = "b", 
+       add = "mean_se", 
+       palette = "Dark2", 
+       xlab = "Days post-infection", 
+       ylab = "Weight (% of day 0)") +
+  geom_hline(yintercept = 80, linetype = "dashed") +
+  theme(legend.title = element_blank()) + 
+  scale_x_continuous(breaks = c(0,2,4,6,8))
+
+ggpar(p, legend = "right")
+```
+
+```{r}
+# anova across timeoints
+summary(a <- aov(value ~ Abx, spf_gfm_v))
+TukeyHSD(a)
+```
+
+```{r}
+# wilcoxon test for weight loss at 1 dpi 
+spf_gfm_v[spf_gfm_v$dpi == 1,] %>% 
+  wilcox_test(value ~ Abx) %>%
+  adjust_pvalue(method = "BH")
+```
+
+## Supp. Figure 1A - Survival
+
+```{r}
+## survival
+spf_gf$Status <- 2
+spf_gf$Status[spf_gf$Abx == "SPF"] <- 1
+
+# format data
+spf_gf$Survival_day <- apply(X=spf_gf[,grep(pattern = "^dpi", colnames(spf_gf))], MARGIN = 1, function(x) {
+  colnames(spf_gf)[grep(pattern = "^dpi", colnames(spf_gf))][length(x) + 1 - as.numeric(which(!is.na((rev(x))))[1])]
+}) %>% gsub(pattern = "dpi", replacement = "") %>% as.numeric
+
+spf_gf_survival <- ddply(.data = spf_gf, .variables = "Abx", 
+                    .fun = function(x) {
+                      dpi0_surv <- length(which(!is.na(x$dpi1)))
+                      dpi1_surv <- length(which(!is.na(x$dpi2)))
+                      dpi2_surv <- length(which(!is.na(x$dpi3)))
+                      dpi3_surv <- length(which(!is.na(x$dpi4)))
+                      dpi4_surv <- length(which(!is.na(x$dpi5)))
+                      dpi5_surv <- length(which(!is.na(x$dpi6)))
+                      dpi6_surv <- length(which(!is.na(x$dpi7)))
+                      dpi7_surv <- length(which(!is.na(x$dpi8)))
+                      dpi8_surv <- length(which(!is.na(x$dpi9)))
+                      dpi9_surv <- length(which(!is.na(x$dpi10)))
+                      
+                      dpi0 <- dpi0_surv/dpi0_surv*100
+                      dpi1 <- dpi1_surv/dpi0_surv*100
+                      dpi2 <- dpi2_surv/dpi0_surv*100
+                      dpi3 <- dpi3_surv/dpi0_surv*100
+                      dpi4 <- dpi4_surv/dpi0_surv*100
+                      dpi5 <- dpi5_surv/dpi0_surv*100
+                      dpi6 <- dpi6_surv/dpi0_surv*100
+                      dpi7 <- dpi7_surv/dpi0_surv*100
+                      dpi8 <- dpi8_surv/dpi0_surv*100
+                      dpi9 <- dpi9_surv/dpi0_surv*100
+                      
+                      c(dpi0=dpi0, 
+                        dpi1=dpi1, 
+                        dpi2=dpi2, 
+                        dpi3=dpi3,
+                        dpi4=dpi4,
+                        dpi5=dpi5,
+                        dpi6=dpi6,
+                        dpi7=dpi7,
+                        dpi8=dpi8,
+                        dpi9=dpi9,
+                        dpi10=0)
+                    }
+)
+
+spf_gf_survival[,grep("dpi", colnames(spf_gf_survival))] <- apply(spf_gf_survival[,grep("dpi", colnames(spf_gf_survival))], 
+                                                            MARGIN = 1,
+                                                            FUN = function(x) {
+                                                              i <- sum(x == 0) - 1
+                                                              if ( i != 0) {
+                                                                x[12-c(1:i)] <- NA
+                                                              }
+                                                              as.numeric(x)
+                                                            }) %>% t
+
+spf_gfm_survival <- melt(data = spf_gf_survival, id.vars = "Abx")
+spf_gfm_survival$dpi <- gsub(pattern = "dpi", replacement = "", spf_gfm_survival$variable) %>% as.numeric
+spf_gfm_survival$value[spf_gfm_survival$Abx == "SPF" & spf_gfm_survival$variable == "dpi8"] <- 100 
+
+# plot only up to 8 days
+spf_gfm_survival <- spf_gfm_survival[!spf_gfm_survival$variable %in% c("dpi9", "dpi10"),]
+
+# plot survival
+p <- ggplot(data = spf_gfm_survival, mapping = aes(x = dpi, y = value, group = Abx)) +
+  geom_step(aes(color = Abx), size = 1) + 
+  #geom_point() +
+  theme_pubr() + 
+  theme(legend.title = element_blank())
+
+ggpar(p, palette = "Dark2", xlab = "Days post-infection", ylab = "Percent survival", 
+               legend = "right") + 
+  scale_x_continuous(breaks = c(0,2,4,6,8)) 
+```
+
+## Supp. Figure 1B
+
+```{r}
+# load data
+spf <- read_excel(path = dp, sheet = "SPF_screen_data")
+spf <- spf[spf$Treatment != "PBS-no_abx",] # only keep antibiotic treated mice
+
+# format data
+spf_perc <- apply(X = spf[,grep(pattern = "Weight_", colnames(spf))], 
+                 MARGIN = 1, 
+                 function(x) {
+                   x <- as.numeric(x)
+                   x/x[1]*100
+                 }) %>% t %>% as.data.frame
+
+colnames(spf_perc) <- paste0("dpi",seq(0,length(grep(pattern = "Weight_", colnames(spf)))-1))
+spf <- cbind(spf, spf_perc)
+
+spf$Commensal_faeces_post_abx_d0 <- as.numeric(spf$Commensal_faeces_post_abx_d0)
+spf$Commensal_faeces_post_abx_d1 <- as.numeric(spf$Commensal_faeces_post_abx_d1)
+spf$Commensal_faeces_post_abx_d2 <- as.numeric(spf$Commensal_faeces_post_abx_d2)
+
+# calculate survival
+spf$Survival_day <- apply(X=spf[,grep(pattern = "^dpi", colnames(spf))], MARGIN = 1, function(x) {
+  colnames(spf)[grep(pattern = "^dpi", colnames(spf))][length(x) + 1 - as.numeric(which(!is.na((rev(x))))[1])]
+}) %>% gsub(pattern = "dpi", replacement = "") %>% as.numeric
+
+# fix 0s post-log scale
+spf$Log_d2_commensal <- log10(spf$Commensal_faeces_post_abx_d2) %>% gsub(pattern = "-Inf", replacement = 0) %>% as.numeric
+
+# only include samples with correct data 
+spf2 <- spf[which(!is.na(spf$Commensal_faeces_post_abx_d2)),]
+spf3 <- rbind(spf2[spf2$Treatment %in% c("PBS"),], # only use mice that were not treated with commensals prior to faeces plating
+      spf2[spf2$Experiment == "SPF_dw",]) %>% unique 
+
+p_comm_surv <- ggscatter(spf3, x = "Log_d2_commensal", y = "Survival_day", 
+          add = "reg.line",
+          #add = "loess",
+          conf.int = TRUE, cor.coef = TRUE, 
+          xlab = "CFU/g faeces, 2 days post-antibiotics",
+          ylab = "Survival (d.p.i.)") +
+  scale_x_continuous(breaks = c(0,2,4,6,8,10), 
+                     labels = c("N.D.", "1e+02", "1e+04", "1e+06", "1e+08", "1e+10"), 
+                     limits = c(0,10.5))
+p_comm_surv
+```
+
+# Supplementary Figure 1C
+
+```{r}
+# format data
+spf2m <- melt(spf2[spf2$Experiment == "SPF_dw",], measure.vars = colnames(spf2)[grep(colnames(spf2), pattern = "Commensal_faeces")][c(1:3)])
+spf2m$dp_abx <- gsub(spf2m$variable, pattern = "Commensal_faeces_post_abx_d", replacement = "") %>% as.numeric
+
+# correct 0s post log
+spf2m$log_value <- log10(spf2m$value) %>% gsub(pattern = "-Inf", replacement = 0) %>% as.numeric
+
+spf2m$Cage <- spf2m$Treatment
+i=1
+for (Cage in unique(spf2m$Treatment) %>% sort) {
+  spf2m$Cage[spf2m$Treatment == Cage] <- paste0("Cage", " ", i)
+  i=i+1
+}
+
+p <- ggbarplot(spf2m, x = "dp_abx", y = "log_value", group = "Treatment", add = "mean_se", 
+       fill = "Cage", 
+       position = position_dodge(0.9), 
+       palette = "Greys", 
+       xlab = "Days post-antibiotics",
+       ylab = "S.Tm CFU/g faeces") +
+  scale_y_continuous(breaks = c(0,2,4,6,8), labels = c("N.D.", "1e+02", "1e+04", "1e+06", "1e+08"))
+ggpar(p, legend = "right", legend.title = "")
+```
+
+
+# Supplementary Figure 3
+
+```{r}
+# automate plot building with corrected p-values
+build.IEL_plot <- function(i, site, ylab) {
+  
+  d <- iel_data[iel_data$Tissue == site,]
+  
+  i=i+4
+  print(colnames(d)[i])
+  
+  df <- data.frame(d$Group2, d[,i])
+  group_name <- as.character(colnames(df)[2])
+  colnames(df) <- c("Metadata", "Var_group")
+  
+  
+  stat.test <- wilcox_test(data = df, formula = Var_group ~ Metadata, ref.group = "GF", p.adjust.method = "BH")
+  stat.test <- stat.test %>% mutate(y.position = c(max(df$Var_group, na.rm = TRUE)+(max(df$Var_group, na.rm = TRUE)/15), 
+                                                   max(df$Var_group, na.rm = TRUE)+(2*(max(df$Var_group, na.rm = TRUE)/15))))
+  
+  p <- ggbarplot(df,
+                 x = "Metadata",
+                 y = "Var_group",
+                 fill = "Metadata",
+                 palette = monocol_pal2,
+                 order = iso_order2,
+                 ylab = ylab, 
+                 xlab  = FALSE,
+                 add = c("median_mad")) +
+    stat_pvalue_manual(stat.test, label = "p.adj") +
+    theme(legend.position = "none") +
+    rotate_x_text(30) +
+    geom_dotplot(binaxis = "y", stackdir = "center", binpositions="all", binwidth = max(df$Var_group, na.rm = TRUE)/50)
+  
+  return(p)
+}
+
+build.nonIEL_plot <- function(i, site, ylab) {
+  
+  d <- noniel_data[noniel_data$Tissue == site,]
+  i=i+4
+  print(colnames(d)[i])
+  
+  df <- data.frame(d$Group2, d[,i])
+  group_name <- as.character(colnames(df)[2])
+  colnames(df) <- c("Metadata", "Var_group")
+  
+  
+  stat.test <- wilcox_test(data = df, formula = Var_group ~ Metadata, ref.group = "GF", p.adjust.method = "BH")
+  stat.test <- stat.test %>% mutate(y.position = c(max(df$Var_group, na.rm = TRUE)+(max(df$Var_group, na.rm = TRUE)/15), 
+                                                   max(df$Var_group, na.rm = TRUE)+(2*(max(df$Var_group, na.rm = TRUE)/15))))
+  
+  p <- ggbarplot(df,
+                 x = "Metadata",
+                 y = "Var_group",
+                 fill = "Metadata",
+                 palette = monocol_pal2,
+                 order = iso_order2,
+                 ylab = ylab, 
+                 xlab  = FALSE,
+                 add = c("median_mad")) +
+    stat_pvalue_manual(stat.test, label = "p.adj") +
+    theme(legend.position = "none") +
+    rotate_x_text(30) +
+    geom_dotplot(binaxis = "y", stackdir = "center", binpositions="all", binwidth = max(df$Var_group, na.rm = TRUE)/50)
+  
+  return(p)
+}
+```
+
+```{r}
+# colon IEL
+p_l1 <- build.IEL_plot(i = 3, site = "Colon", ylab = "B220+ (% of Viable CD45+)")
+p_l2 <- build.IEL_plot(i = 15, site = "Colon", ylab = "CD8ab+ (% of TCRb+)")
+p_l3 <- build.IEL_plot(i = 14, site = "Colon", ylab = "CD4+ (% of TCRb+)")
+p_l4 <- build.IEL_plot(i = 20, site = "Colon", ylab = "FoxP3+ (% of TCRb+)")
+
+# colon LPL
+p_l5 <- build.nonIEL_plot(i = 3, site = "Colon", ylab = "B220+ (% of Viable CD45+)")
+p_l6 <- build.nonIEL_plot(i = 10, site = "Colon", ylab = "CD8ab+ (% of TCRb+)")
+p_l7 <- build.nonIEL_plot(i = 9, site = "Colon", ylab = "CD4+ (% of TCRb+)")
+p_l8 <- build.nonIEL_plot(i = 12, site = "Colon", ylab = "FoxP3+ (% of TCRb+)")
+
+# mLN
+p_m1 <- build.nonIEL_plot(i = 3, site = "mLN", ylab = "B220+ (% of Viable CD45+)")
+p_m2 <- build.nonIEL_plot(i = 10, site = "mLN", ylab = "CD8ab+ (% of TCRb+)")
+p_m3 <- build.nonIEL_plot(i = 9, site = "mLN", ylab = "CD4+ (% of TCRb+)")
+p_m4 <- build.nonIEL_plot(i = 12, site = "mLN", ylab = "FoxP3+ (% of TCRb+)")
+
+ggarrange(p_l1, p_l5, p_m1,
+          p_l2, p_l6, p_m2,
+          p_l3, p_l7, p_m3,
+          p_l4, p_l8, p_m4,
+          nrow = 4, ncol = 3)
+```

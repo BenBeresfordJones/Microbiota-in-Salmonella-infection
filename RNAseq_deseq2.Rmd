@@ -1,0 +1,137 @@
+---
+title: "RNAseq_sample_processing"
+author: "Benjamin Beresford-Jones"
+date: "2024-05-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+if (!require("tximport", quietly = TRUE))
+    BiocManager::install("tximport")
+if (!require("DESeq2", quietly = TRUE))
+    BiocManager::install("DESeq2")
+if (!require("EnsDb.Mmusculus.v79", quietly = TRUE))
+  BiocManager::install("EnsDb.Mmusculus.v79")
+
+library(tximport)
+library(DESeq2)
+library(EnsDb.Mmusculus.v79)
+
+library(ggpubr)
+library(reshape2)
+library(plyr)
+library(stats)
+library(readxl)
+```
+
+## load metadata
+```{r}
+md <- read_excel(path = "RNAseq_metadata.xlsx") # RNAseq metadata can be found in Supplementary Table 2 of the manuscript.
+```
+
+## Extract the gene reference table
+```{r}
+txdb <- EnsDb.Mmusculus.v79
+tx <- transcripts(txdb, columns = c("tx_id", "gene_name", "gene_id"), return.type = "data.frame")
+tx <- tx[tx$gene_name != '', ]
+dim(tx)
+```
+
+## create a colData for DESeq2 for the comparisons you are after and read it in
+```{r}
+colData <- data.frame(md)
+row.names(colData) <- colData$File
+colData$condition <- colData$Group
+colData$batch <- colData$Gutprep
+```
+
+## List the quant.sf files - these are generated from Salmon
+```{r}
+folders <- list.files('quants') 
+files <- lapply(folders, function(x) file.path('quants', x, 'quant.sf'))
+files <- unlist(files)
+names(files) <- do.call(rbind, strsplit(folders, '_'))[,1]
+# subset files to only those found in colData
+files <- files[row.names(colData)]
+all(file.exists(files))
+```
+
+## import the quant.sf files and ready it for DESeq2
+```{r}
+txi <- tximport(files, type = "salmon", tx2gene = tx, ignoreAfterBar=TRUE, ignoreTxVersion=TRUE)
+```
+
+# analyse with batch correction 
+```{r}
+# test with batch correction
+dds_bc <- DESeqDataSetFromTximport(txi, colData, ~batch+condition)
+# remove low count features
+dds_bc <- dds_bc[rowSums(counts(dds_bc)) > 10 ,]
+# normalises deseq count data
+dds_bc <- DESeq(dds_bc)
+
+# prepare file for GSEA
+norm_counts_wBC <- as.data.frame(counts(dds_bc))
+```
+
+## Run DESeq2 - test A92 vs GF
+```{r}
+# Do a differential test
+res_A92_bc <- results(dds_bc,
+        alpha = 0.05,
+        contrast = c('condition', 'A92', 'PBS'),
+        cooksCutoff = FALSE)
+summary(res_A92_bc)
+res_A92_df_bc <- as.data.frame(res_A92_bc) #store as dataframe
+res_A92_df_bc <- res_A92_df_bc[order(res_A92_df_bc$padj),]
+res_A92_df_sig_bc <- res_A92_df_bc[which(res_A92_df_bc$padj < 0.05), ]
+res_A92_df_sig_bc
+res_A92_df_sig_bc$mlog10padj<- -log10(res_A92_df_sig_bc$padj)
+ggscatter(res_A92_df_sig_bc, x = "log2FoldChange", y = "mlog10padj")
+
+#filename = "~/Documents/PhD/RNAseq_analyses/Outputs/DEGs/A92vsPBS_DEgenes_BC_031223.csv"
+#write.csv(res_A92_df_bc, filename)
+```
+
+## Run DESeq2 - test A7 vs GF
+```{r}
+# Do a differential test
+res_A7_bc <- results(dds_bc,
+        alpha = 0.05,
+        contrast = c('condition', 'A7', 'PBS'),
+        cooksCutoff = FALSE)
+summary(res_A7_bc)
+res_A7_df_bc <- as.data.frame(res_A7_bc) #store as dataframe
+res_A7_df_bc <- res_A7_df_bc[order(res_A7_df_bc$padj),]
+res_A7_df_sig_bc <- res_A7_df_bc[which(res_A7_df_bc$padj < 0.05), ]
+res_A7_df_sig_bc
+res_A7_df_sig_bc$mlog10padj<- -log10(res_A7_df_sig_bc$padj)
+ggscatter(res_A7_df_sig_bc, x = "log2FoldChange", y = "mlog10padj")
+
+# filename = "~/Documents/PhD/RNAseq_analyses/Outputs/DEGs/A7vsPBS_DEgenes_BC_031223.csv"
+# write.csv(res_A7_df_bc, filename)
+```
+
+## Run DESeq2 - test SPF vs GF
+```{r}
+# Do a differential test
+res_SPF_bc <- results(dds_bc,
+        alpha = 0.05,
+        contrast = c('condition', 'SPF', 'PBS'),
+        cooksCutoff = FALSE)
+summary(res_SPF_bc)
+res_SPF_df_bc <- as.data.frame(res_SPF_bc) #store as dataframe
+res_SPF_df_bc <- res_SPF_df_bc[order(res_SPF_df_bc$padj),]
+res_SPF_df_sig_bc <- res_SPF_df_bc[which(res_SPF_df_bc$padj < 0.05), ]
+res_SPF_df_sig_bc
+res_SPF_df_sig_bc$mlog10padj<- -log10(res_SPF_df_sig_bc$padj)
+ggscatter(res_SPF_df_sig_bc, x = "log2FoldChange", y = "mlog10padj")
+
+# filename = "~/Documents/PhD/RNAseq_analyses/Outputs/DEGs/SPFvsPBS_DEgenes_BC_031223.csv"
+# write.csv(res_SPF_df_bc, filename)
+```
+
